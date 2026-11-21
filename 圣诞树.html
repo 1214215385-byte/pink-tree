@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no,viewport-fit=cover">
+<meta name="format-detection" content="telephone=no">
+<meta name="theme-color" content="#0a0410">
+<title>粉色圣诞树</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{
+    width:100%;height:100%;overflow:hidden;
+    background:#0a0410;
+    -webkit-tap-highlight-color:transparent;
+    -webkit-user-select:none;user-select:none;
+    touch-action:none;overscroll-behavior:none;
+  }
+  #c{display:block;position:fixed;left:0;top:0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+(function(){
+'use strict';
+
+var canvas = document.getElementById('c');
+var ctx    = canvas.getContext('2d');
+
+var W=0,H=0,DPR=1,cx=0,cy=0;
+var S=1, camZ=1;
+var TREE_R    = 0.42;   /* 树的底半径（相对高度） */
+var TILT      = 0.18;   /* 俯视倾角 */
+var ROT_SPEED = 0.55;   /* 自转速度 rad/s */
+
+var COLORS = [
+  [255,205,230],
+  [255,165,208],
+  [255,115,182],
+  [255,235,246],
+  [238, 82,150]
+];
+
+var sprites   = [];
+var particles = [];
+var time = 0, lastNow = 0;
+
+/* ---------- 预渲染光点贴图 ---------- */
+function makeSprite(c){
+  var size = 64, r = size/2;
+  var cv = document.createElement('canvas');
+  cv.width = cv.height = size;
+  var g = cv.getContext('2d');
+  var grd = g.createRadialGradient(r,r,0,r,r,r);
+  grd.addColorStop(0,    'rgba(255,255,255,0.95)');
+  grd.addColorStop(0.16, 'rgba('+c[0]+','+c[1]+','+c[2]+',0.92)');
+  grd.addColorStop(0.42, 'rgba('+c[0]+','+c[1]+','+c[2]+',0.30)');
+  grd.addColorStop(1,    'rgba('+c[0]+','+c[1]+','+c[2]+',0)');
+  g.fillStyle = grd;
+  g.fillRect(0,0,size,size);
+  return cv;
+}
+function initSprites(){
+  for(var i=0;i<COLORS.length;i++) sprites.push(makeSprite(COLORS[i]));
+}
+
+/* ---------- 单个粒子 ---------- */
+function makeParticle(nx,ny,nz,sizeFactor){
+  return {
+    nx:nx, ny:ny, nz:nz,                          /* 归一化 3D 目标坐标 */
+    size: (0.8 + Math.random()*1.2) * sizeFactor,
+    sprite: (Math.random()*COLORS.length)|0,
+    sAng: Math.random()*Math.PI*2,                /* 出发点角度 */
+    sRad: 0.80 + Math.random()*0.55,              /* 出发点距离倍数 */
+    delay: Math.random()*1.8,
+    dur:   1.7 + Math.random()*1.7,
+    phase: Math.random()*Math.PI*2,
+    twinkle: 0.55 + Math.random()*0.45,
+    p: 0
+  };
+}
+
+/* ---------- 构建圣诞树点云 ---------- */
+function setupTree(){
+  particles.length = 0;
+  var i,t,y,ang,rad;
+
+  /* 1. 螺旋灯带 */
+  var N1 = 820, TURNS = 15;
+  for(i=0;i<N1;i++){
+    t   = i/N1;                       /* 0 = 底部, 1 = 顶部 */
+    y   = 0.5 - t;
+    rad = TREE_R*(1-t)*(0.93 + Math.random()*0.10);
+    ang = t*TURNS*Math.PI*2 + (Math.random()-0.5)*0.30;
+    particles.push(makeParticle(
+      Math.cos(ang)*rad,
+      y + (Math.random()-0.5)*0.015,
+      Math.sin(ang)*rad,
+      1.0
+    ));
+  }
+
+  /* 2. 树体散点填充 */
+  var N2 = 400;
+  for(i=0;i<N2;i++){
+    t   = Math.pow(Math.random(),0.75);
+    y   = 0.5 - t;
+    rad = TREE_R*(1-t)*(0.55 + Math.random()*0.45);
+    ang = Math.random()*Math.PI*2;
+    particles.push(makeParticle(Math.cos(ang)*rad, y, Math.sin(ang)*rad, 0.75));
+  }
+
+  /* 3. 树顶星星 */
+  var star = [];
+  for(i=0;i<10;i++){
+    var a  = -Math.PI/2 + i*Math.PI/5;
+    var rr = (i%2===0) ? 1 : 0.42;
+    star.push([Math.cos(a)*rr, Math.sin(a)*rr]);
+  }
+  var NS = 190, SS = 0.11;
+  for(i=0;i<NS;i++){
+    var k  = (Math.random()*10)|0;
+    var p0 = star[k], p1 = star[(k+1)%10];
+    var u  = Math.random();
+    var px = p0[0] + (p1[0]-p0[0])*u;
+    var py = p0[1] + (p1[1]-p0[1])*u;
+    particles.push(makeParticle(
+      px*SS,
+      -0.62 + py*SS,
+      (Math.random()-0.5)*0.05,
+      1.25
+    ));
+  }
+}
+
+/* ---------- 自适应尺寸 ---------- */
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = window.innerWidth;
+  H = window.innerHeight;
+
+  canvas.width  = Math.floor(W*DPR);
+  canvas.height = Math.floor(H*DPR);
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+
+  ctx.setTransform(DPR,0,0,DPR,0,0);
+  cx = W/2;
+  cy = H/2;
+
+  S    = Math.min(H*0.62, (W*0.82)/(2*TREE_R));   /* 树高（像素） */
+  camZ = S*2.5;
+
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#0a0410';
+  ctx.fillRect(0,0,W,H);
+}
+
+/* ---------- 主循环 ---------- */
+function frame(now){
+  if(!lastNow) lastNow = now;
+  var dt = (now - lastNow)/1000;
+  lastNow = now;
+  if(dt > 0.1) dt = 0.1;
+  time += dt;
+
+  var rot  = time * ROT_SPEED;
+  var cosY = Math.cos(rot),  sinY = Math.sin(rot);
+  var cosX = Math.cos(TILT), sinX = Math.sin(TILT);
+  var maxDim = Math.max(W,H);
+
+  /* 拖尾淡出 */
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = 'rgba(10,4,16,0.30)';
+  ctx.fillRect(0,0,W,H);
+
+  /* 叠加发光 */
+  ctx.globalCompositeOperation = 'lighter';
+
+  for(var i=0;i<particles.length;i++){
+    var p = particles[i];
+
+    if(time > p.delay){
+      var q = (time - p.delay)/p.dur;
+      p.p = q > 1 ? 1 : q;
+    }
+    var e = 0.5 - 0.5*Math.cos(p.p*Math.PI);   /* easeInOutSine */
+
+    /* 3D 目标点 -> 旋转 -> 透视投影 */
+    var wx = p.nx*S, wy = p.ny*S, wz = p.nz*S;
+    var x1 = wx*cosY - wz*sinY;
+    var z1 = wx*sinY + wz*cosY;
+    var y2 = wy*cosX - z1*sinX;
+    var z2 = wy*sinX + z1*cosX;
+
+    var sc = camZ/(camZ + z2);
+    var tx = cx + x1*sc;
+    var ty = cy + y2*sc;
+
+    /* 屏幕外的出发点 */
+    var sx = cx + Math.cos(p.sAng)*p.sRad*maxDim;
+    var sy = cy + Math.sin(p.sAng)*p.sRad*maxDim;
+
+    var x = sx + (tx - sx)*e;
+    var y = sy + (ty - sy)*e;
+
+    /* 飞行途中的飘忽感 */
+    if(e < 0.995){
+      var wob = (1-e)*16;
+      x += Math.sin(time*1.6 + p.phase)*wob;
+      y += Math.cos(time*1.2 + p.phase*1.7)*wob;
+    }
+
+    var tw    = 0.72 + 0.28*Math.sin(time*2.1 + p.phase);
+    var alpha = (0.20 + 0.80*e)*tw*p.twinkle;
+    if(alpha > 1) alpha = 1;
+    if(alpha < 0.02) continue;
+
+    var d = p.size*sc*7;
+    if(d < 1) d = 1;
+
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(sprites[p.sprite], x - d*0.5, y - d*0.5, d, d);
+  }
+
+  ctx.globalAlpha = 1;
+  requestAnimationFrame(frame);
+}
+
+/* ---------- 点击重播 ---------- */
+function replay(){
+  time = 0; lastNow = 0;
+  for(var i=0;i<particles.length;i++){
+    var p = particles[i];
+    p.p     = 0;
+    p.delay = Math.random()*1.8;
+    p.dur   = 1.7 + Math.random()*1.7;
+    p.sAng  = Math.random()*Math.PI*2;
+    p.sRad  = 0.80 + Math.random()*0.55;
+  }
+}
+canvas.addEventListener('click', replay, false);
+
+/* ---------- 启动 ---------- */
+initSprites();
+setupTree();
+resize();
+requestAnimationFrame(frame);
+
+window.addEventListener('resize', resize, false);
+window.addEventListener('orientationchange', function(){
+  setTimeout(resize, 260);
+}, false);
+
+})();
+</script>
+</body>
+</html>
