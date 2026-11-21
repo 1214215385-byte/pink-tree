@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>粉色粒子 · 潘思情是乐乐</title>
+<style>
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #080510;
+    touch-action: manipulation;
+}
+canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+.hint {
+    position: absolute;
+    bottom: 35px;
+    left: 0;
+    width: 100%;
+    text-align: center;
+    color: rgba(255,190,220,.38);
+    font-size: 12px;
+    letter-spacing: 4px;
+    pointer-events: none;
+    font-family: sans-serif;
+    animation: fade 3s infinite alternate;
+}
+@keyframes fade {
+    from {opacity:.3}
+    to {opacity:.8}
+}
+</style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+<div class="hint">A LITTLE SURPRISE FOR YOU</div>
+
+<script>
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+
+let W, H, CX, CY, DPR;
+let particles = [];
+let targets = [];
+let startTime = null;
+let lastTime = 0;
+
+const TOTAL = 1500;
+const COLORS = [
+    "#ffb6d5",
+    "#ff80bd",
+    "#ff4fa3",
+    "#ffd1e5",
+    "#ff9bc9",
+    "#ffffff"
+];
+
+function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+
+    CX = W / 2;
+    CY = H / 2;
+
+    createTextTargets();
+}
+
+window.addEventListener("resize", resize);
+
+// 随机数
+function rand(min, max) {
+    return Math.random() * (max - min) + min;
+}
+
+function ease(t) {
+    t = Math.max(0, Math.min(1, t));
+    return t * t * (3 - 2 * t);
+}
+
+// 创建文字粒子目标
+function createTextTargets() {
+    const off = document.createElement("canvas");
+    const c = off.getContext("2d");
+
+    off.width = W;
+    off.height = H;
+
+    let fontSize = Math.min(W * 0.125, 68);
+    fontSize = Math.max(fontSize, 25);
+
+    c.font = `bold ${fontSize}px "PingFang SC","Microsoft YaHei",sans-serif`;
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+
+    // 柔和的双行文字
+    const text = "潘思情是乐乐";
+
+    c.fillStyle = "#fff";
+    c.fillText(text, CX, CY, W * 0.9);
+
+    const data = c.getImageData(0, 0, W, H).data;
+    targets = [];
+
+    // 采样文字轮廓和内部
+    const step = 4;
+
+    for (let y = 0; y < H; y += step) {
+        for (let x = 0; x < W; x += step) {
+            const index = (y * W + x) * 4;
+            if (data[index + 3] > 120) {
+                targets.push({
+                    x: x + rand(-1, 1),
+                    y: y + rand(-1, 1)
+                });
+            }
+        }
+    }
+
+    // 打乱目标位置
+    for (let i = targets.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [targets[i], targets[j]] = [targets[j], targets[i]];
+    }
+
+    if (particles.length) {
+        particles.forEach((p, i) => {
+            p.target = targets[i % targets.length];
+        });
+    }
+}
+
+// 创建粒子
+function createParticles() {
+    particles = [];
+
+    for (let i = 0; i < TOTAL; i++) {
+        const angle = rand(0, Math.PI * 2);
+        const side = Math.floor(rand(0, 4));
+
+        let x, y;
+
+        if (side === 0) {
+            x = rand(0, W);
+            y = -rand(20, H * .5);
+        } else if (side === 1) {
+            x = W + rand(20, W * .5);
+            y = rand(0, H);
+        } else if (side === 2) {
+            x = rand(0, W);
+            y = H + rand(20, H * .5);
+        } else {
+            x = -rand(20, W * .5);
+            y = rand(0, H);
+        }
+
+        const target = targets[i % targets.length];
+
+        particles.push({
+            x, y,
+            sx: x,
+            sy: y,
+            vx: 0,
+            vy: 0,
+            angle,
+            radius: rand(1.1, 2.6),
+            speed: rand(.7, 1.3),
+            color: COLORS[Math.floor(rand(0, COLORS.length))],
+            alpha: rand(.55, 1),
+            target,
+            offset: rand(0, Math.PI * 2),
+            distance: rand(25, 180),
+            swirl: rand(.7, 1.3),
+            seed: rand(0, 1000)
+        });
+    }
+}
+
+// 背景星光
+const stars = Array.from({length: 100}, () => ({
+    x: Math.random(),
+    y: Math.random(),
+    r: rand(.3, 1.2),
+    a: rand(.1, .5),
+    phase: rand(0, 6)
+}));
+
+function drawBackground(time) {
+    ctx.fillStyle = "rgba(8,5,16,.25)";
+    ctx.fillRect(0, 0, W, H);
+
+    for (const s of stars) {
+        const alpha = s.a * (.6 + .4 * Math.sin(time * .001 + s.phase));
+        ctx.fillStyle = `rgba(255,190,225,${alpha})`;
+        ctx.beginPath();
+        ctx.arc(s.x * W, s.y * H, s.r, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // 中央柔和光晕
+    const glow = ctx.createRadialGradient(
+        CX, CY, 0, CX, CY, Math.min(W, H) * .48
+    );
+    glow.addColorStop(0, "rgba(150,30,100,.12)");
+    glow.addColorStop(1, "rgba(8,5,16,0)");
+
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+}
+
+// 粒子绘制
+function drawParticle(p, alpha = 1) {
+    ctx.globalAlpha = p.alpha * alpha;
+    ctx.fillStyle = p.color;
+
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.globalAlpha = 1;
+}
+
+// 主动画
+function animate(timestamp) {
+    if (!startTime) startTime = timestamp;
+
+    const elapsed = (timestamp - startTime) / 1000;
+    const dt = Math.min((timestamp - lastTime) / 16.67 || 1, 2);
+    lastTime = timestamp;
+
+    drawBackground(timestamp);
+
+    /*
+      时间阶段：
+      0-5秒：四面汇聚
+      5-9秒：中心旋转缠绕
+      9-12秒：向四周散开
+      12-16秒：重新聚合文字
+      16秒后：文字持续展示
+    */
+
+    let phase;
+
+    if (elapsed < 5) phase = 0;
+    else if (elapsed < 9) phase = 1;
+    else if (elapsed < 12) phase = 2;
+    else if (elapsed < 16) phase = 3;
+    else phase = 4;
+
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+
+    particles.forEach((p, i) => {
+        let tx = CX;
+        let ty = CY;
+        let alpha = 1;
+
+        if (phase === 0) {
+            // 四面八方缓慢涌入
+            const t = ease(elapsed / 5);
+
+            tx = CX + Math.cos(p.angle) * p.distance * (1 - t);
+            ty = CY + Math.sin(p.angle) * p.distance * (1 - t);
+
+            const force = .018 * p.speed * dt;
+
+            p.vx += (tx - p.x) * force;
+            p.vy += (ty - p.y) * force;
+
+            p.vx += Math.sin(elapsed * 1.5 + p.seed) * .025;
+            p.vy += Math.cos(elapsed * 1.2 + p.seed) * .025;
+
+            p.vx *= .94;
+            p.vy *= .94;
+
+            p.x += p.vx * dt;
+            p.y += p.vy * dt;
+
+            alpha = Math.min(1, elapsed / 1.5);
+        }
+
+        else if (phase === 1) {
+            // 中心漩涡缠绕旋转
+            const t = elapsed - 5;
+
+            const angle = p.angle + t * p.swirl * 2.1;
+            const radius = p.distance * .25 +
+                           Math.sin(t * 2 + p.seed) * 24;
+
+            tx = CX + Math.cos(angle) * radius;
+            ty = CY + Math.sin(angle) * radius * .75;
+
+            p.x += (tx - p.x) * .045 * dt;
+            p.y += (ty - p.y) * .045 * dt;
+
+            alpha = 1;
+        }
+
+        else if (phase === 2) {
+            // 漩涡缓慢爆开、四散
+            const t = ease((elapsed - 9) / 3);
+            const angle = p.angle + 8 * p.swirl;
+
+            const radius = 20 + t * p.distance * 2.5;
+
+            tx = CX + Math.cos(angle) * radius;
+            ty = CY + Math.sin(angle) * radius;
+
+            p.x += (tx - p.x) * .035 * dt;
+            p.y += (ty - p.y) * .035 * dt;
+
+            alpha = 1 - t * .65;
+        }
+
+        else if (phase === 3) {
+            // 粒子重新组成文字
+            const t = ease((elapsed - 12) / 4);
+
+            const target = p.target;
+
+            tx = target.x;
+            ty = target.y;
+
+            const scatterX = CX + Math.cos(p.angle) * p.distance * 2.2;
+            const scatterY = CY + Math.sin(p.angle) * p.distance * 2.2;
+
+            const startX = scatterX;
+            const startY = scatterY;
+
+            p.x += (tx - p.x) * (.008 + t * .095) * dt;
+            p.y += (ty - p.y) * (.008 + t * .095) * dt;
+
+            // 文字显现时轻微漂浮
+            alpha = .3 + t * .7;
+        }
+
+        else {
+            // 文字保持粒子形态，轻微呼吸
+            const target = p.target;
+
+            const floatX = Math.sin(timestamp * .0008 + p.seed) * 1.5;
+            const floatY = Math.cos(timestamp * .0007 + p.seed) * 1.5;
+
+            p.x += (target.x + floatX - p.x) * .025 * dt;
+            p.y += (target.y + floatY - p.y) * .025 * dt;
+
+            alpha = .95 + Math.sin(timestamp * .002 + p.seed) * .05;
+        }
+
+        // 微小闪烁
+        const twinkle = .82 + .18 * Math.sin(
+            timestamp * .002 + p.seed
+        );
+
+        drawParticle(p, alpha * twinkle);
+    });
+
+    ctx.restore();
+    requestAnimationFrame(animate);
+}
+
+// 初始化
+function init() {
+    resize();
+    createParticles();
+
+    ctx.fillStyle = "#080510";
+    ctx.fillRect(0, 0, W, H);
+
+    requestAnimationFrame(animate);
+}
+
+// 点击屏幕重新播放
+document.addEventListener("click", () => {
+    startTime = null;
+    lastTime = 0;
+    createParticles();
+});
+
+// 手机屏幕方向改变
+window.addEventListener("orientationchange", () => {
+    setTimeout(() => {
+        resize();
+        createParticles();
+    }, 200);
+});
+
+init();
+</script>
+
+</body>
+</html>
