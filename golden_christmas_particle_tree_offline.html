@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>GOLDEN — Offline Christmas Tree</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}
+canvas{display:block;width:100%;height:100%}
+#ui{position:fixed;inset:0;pointer-events:none;color:#f7df9a;font-family:Georgia,serif}
+.brand{position:absolute;top:5vh;width:100%;text-align:center;letter-spacing:.42em;font:11px Arial,sans-serif;opacity:.75}
+.brand b{display:block;margin-top:12px;font:normal clamp(25px,4vw,43px) Georgia,serif;letter-spacing:.24em;text-shadow:0 0 24px #d99b25}
+.hint{position:absolute;bottom:4vh;width:100%;text-align:center;font:10px/1.8 Arial,sans-serif;letter-spacing:.2em;color:#bca36b;opacity:.8}
+#sound{position:absolute;right:22px;top:22px;pointer-events:auto;border:1px solid #8e712e66;background:#09080588;color:#d9bd77;border-radius:30px;padding:9px 13px;font-size:10px;letter-spacing:.15em}
+#loading{position:fixed;inset:0;display:grid;place-items:center;background:#000;color:#d8b65d;font:11px Arial;letter-spacing:.35em;z-index:2;transition:opacity 1s}
+#loading.hide{opacity:0;pointer-events:none}
+#loading i{display:block;width:110px;height:1px;background:#ffd700;margin:18px auto;animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:.2;transform:scaleX(.5)}}
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div id="loading">PREPARING THE MAGIC<i></i></div>
+<div id="ui"><div class="brand">A LITTLE CHRISTMAS MAGIC<b>GOLDEN</b></div>
+<button id="sound">♫ SOUND OFF</button>
+<div class="hint">MOVE TO GUIDE THE LIGHT　 ✦　 CLICK TO SCATTER &amp; REBIRTH</div></div>
+<script>
+(()=>{'use strict';
+// Fully self-contained offline edition: custom 3D projection + canvas glow, no CDN or external assets.
+const canvas=document.getElementById('scene'),ctx=canvas.getContext('2d',{alpha:false});
+let W=0,H=0,DPR=1;
+function resize(){DPR=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;canvas.width=W*DPR;canvas.height=H*DPR;ctx.setTransform(DPR,0,0,DPR,0,0)}
+addEventListener('resize',resize);resize();
+const rand=(a,b)=>a+Math.random()*(b-a), lerp=(a,b,t)=>a+(b-a)*t;
+const TREE_N=10000,SNOW_N=1500,GROUND_N=3000;
+const tree=[],snow=[],ground=[],stars=[];
+for(let i=0;i<TREE_N;i++){
+ const u=Math.random(),y=.35+u*7.2,a=u*Math.PI*30+rand(-.18,.18),r=(1-u)*2.75*rand(.72,1.08);
+ tree.push({x:Math.cos(a)*r,y,z:Math.sin(a)*r,px:rand(-10,10),py:rand(-2,12),pz:rand(-8,7),s:rand(.65,1.6),ph:Math.random()*6.28});
+}
+const snowGlyph=['❄','✻','✣','✳','❅'];
+for(let i=0;i<SNOW_N;i++)snow.push({x:rand(-10,10),y:rand(-1,13),z:rand(-7,6),s:rand(2,4),v:rand(.65,1.45),d:rand(.12,.5),ph:Math.random()*6.28,g:i%5});
+for(let i=0;i<GROUND_N;i++){let a=Math.random()*6.28,r=Math.sqrt(Math.random())*12;ground.push({x:Math.cos(a)*r,y:rand(-.08,.04),z:Math.sin(a)*r,c:Math.random()>.5?'#2d5016':'#3a621a',s:rand(.5,1.3)})}
+for(let i=0;i<650;i++)stars.push({x:rand(-22,22),y:rand(2,18),z:rand(-18,-8),a:rand(.2,.7),s:rand(.3,1)});
+let pointer={x:0,y:0},target={x:0,y:0},rot=0,begin=performance.now(),burstAt=-1e9,snowBoost=0;
+addEventListener('pointermove',e=>{target.x=(e.clientX/W-.5)*2;target.y=(.5-e.clientY/H)*2},{passive:true});
+addEventListener('pointerdown',e=>{if(e.target.id==='sound')return;burstAt=performance.now();snowBoost=1});
+function project(x,y,z){
+ const a=rot,xx=x*Math.cos(a)-z*Math.sin(a),zz=x*Math.sin(a)+z*Math.cos(a);
+ const px=xx+pointer.x*.16,py=y+pointer.y*.08;
+ const depth=15.5-zz,scale= Math.min(2.6,Math.max(.25,12/depth))*Math.min(W/850,1.35);
+ return {x:W/2+px*scale*48,y:H*.78-(py-3.6)*scale*48,z:depth,scale};
+}
+function glowDot(x,y,r,color,blur=8,alpha=1){
+ ctx.globalAlpha=alpha;ctx.shadowColor=color;ctx.shadowBlur=blur;ctx.fillStyle=color;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;ctx.globalAlpha=1;
+}
+function drawStar(x,y,r,angle){
+ ctx.save();ctx.translate(x,y);ctx.rotate(angle);ctx.beginPath();
+ for(let i=0;i<10;i++){let a=-Math.PI/2+i*Math.PI/5,rr=i%2?r*.43:r;if(!i)ctx.moveTo(Math.cos(a)*rr,Math.sin(a)*rr);else ctx.lineTo(Math.cos(a)*rr,Math.sin(a)*rr)}
+ ctx.closePath();ctx.fillStyle='#ffe39a';ctx.shadowColor='#ffbf28';ctx.shadowBlur=34;ctx.fill();ctx.restore();
+}
+function frame(now){
+ requestAnimationFrame(frame);
+ const t=(now-begin)/1000,dt=Math.min(.04,(now-(frame.last||now))/1000);frame.last=now;
+ pointer.x=lerp(pointer.x,target.x,.035);pointer.y=lerp(pointer.y,target.y,.035);
+ rot+=.005;ctx.fillStyle='#000';ctx.fillRect(0,0,W,H);
+ // Atmospheric distant stars
+ for(const s of stars){let p=project(s.x,s.y,s.z);glowDot(p.x,p.y,s.s*.5,'#e6c879',2,s.a*(.7+.3*Math.sin(t*1.4+s.x)))}
+ // Dark green snowy ground plane
+ const horizon=H*.79;
+ const grd=ctx.createRadialGradient(W/2,horizon,2,W/2,horizon,W*.56);grd.addColorStop(0,'#0b1608');grd.addColorStop(1,'#000');ctx.fillStyle=grd;ctx.fillRect(0,horizon,W,H-horizon);
+ for(const p of ground){const q=project(p.x,p.y,p.z);glowDot(q.x,q.y,p.s*q.scale*.75,p.c,1,.7)}
+ // Tree formation and click burst
+ const formation=Math.max(0,Math.min(1,(t-1.1)/3));const f=formation*formation*(3-2*formation);
+ const burst=Math.max(0,1-(now-burstAt)/1350);
+ const visible=[];
+ for(const p of tree){
+  const radial=Math.hypot(p.x,p.z)||1,bx=p.x/radial,bz=p.z/radial;
+  const scatterX=p.x+bx*burst*4.8,scatterY=p.y+Math.sin(p.ph)*burst*2,scatterZ=p.z+bz*burst*4.8;
+  let x=lerp(p.px,p.x,f),y=lerp(p.py,p.y,f),z=lerp(p.pz,p.z,f);
+  x=lerp(x,scatterX,burst);y=lerp(y,scatterY,burst);z=lerp(z,scatterZ,burst);
+  y+=Math.sin(t*1.3+p.ph)*.012;
+  const q=project(x,y,z);visible.push({q,p});
+ }
+ visible.sort((a,b)=>b.q.z-a.q.z);
+ for(const o of visible){const {q,p}=o;const size=Math.max(.55,p.s*q.scale*.95);glowDot(q.x,q.y,size,'#ffd700',q.z<14?8:4,.72+.22*Math.sin(t*2+p.ph))}
+ // Spiral filament, a faint gold thread of light
+ ctx.save();ctx.beginPath();let first=true;
+ for(let i=0;i<550;i++){let u=i/549,y=.4+u*7.1,r=(1-u)*2.8,a=u*Math.PI*18;let q=project(Math.cos(a)*r,y,Math.sin(a)*r);if(first){ctx.moveTo(q.x,q.y);first=false}else ctx.lineTo(q.x,q.y)}
+ ctx.strokeStyle='rgba(255,225,154,.28)';ctx.lineWidth=1;ctx.shadowColor='#ffca45';ctx.shadowBlur=9;ctx.stroke();ctx.restore();
+ // Star topper
+ const top=project(0,8.25,0);drawStar(top.x,top.y,Math.max(10,18*top.scale),Math.sin(t*.65)*.2);
+ glowDot(top.x,top.y,2.5,'#fff4c7',30,.9);
+ // Falling snow with five distinct glyphs, gentle lateral sway and click boost
+ ctx.textAlign='center';ctx.textBaseline='middle';
+ for(const s of snow){
+  s.y-=dt*s.v*(1+snowBoost*3.8);s.x+=Math.sin(t*1.4+s.ph)*dt*s.d+pointer.x*dt*.08;
+  if(s.y<-.8){s.y=rand(9,14);s.x=rand(-10,10);s.z=rand(-7,6)}
+  const q=project(s.x+Math.sin(t+s.ph)*.08,s.y,s.z);
+  ctx.globalAlpha=.55;ctx.font=`${Math.max(7,s.s*q.scale*2.4)}px Georgia`;ctx.shadowColor='#cdeaff';ctx.shadowBlur=5;ctx.fillStyle='#f4f8ff';ctx.fillText(snowGlyph[s.g],q.x,q.y);ctx.shadowBlur=0;
+ }
+ ctx.globalAlpha=1;snowBoost=Math.max(0,snowBoost-dt*.48);
+ // Gentle vignette for a cinematic black surround
+ const vign=ctx.createRadialGradient(W/2,H*.48,Math.min(W,H)*.18,W/2,H*.48,Math.max(W,H)*.72);
+ vign.addColorStop(0,'rgba(0,0,0,0)');vign.addColorStop(1,'rgba(0,0,0,.68)');ctx.fillStyle=vign;ctx.fillRect(0,0,W,H);
+ if(t>3.9)document.getElementById('loading').classList.add('hide');
+}
+requestAnimationFrame(frame);
+// Optional synthesized bell tones, generated locally by Web Audio.
+let audio=null,on=false,timer=null;const btn=document.getElementById('sound');
+function bell(){if(!audio||!on)return;let o=audio.createOscillator(),g=audio.createGain(),n=audio.currentTime;o.type='sine';o.frequency.value=[659.25,783.99,987.77,1318.5][Math.random()*4|0];g.gain.setValueAtTime(.0001,n);g.gain.exponentialRampToValueAtTime(.025,n+.03);g.gain.exponentialRampToValueAtTime(.0001,n+1.6);o.connect(g);g.connect(audio.destination);o.start();o.stop(n+1.7)}
+btn.addEventListener('click',async()=>{if(!audio)audio=new(window.AudioContext||window.webkitAudioContext)();if(audio.state==='suspended')await audio.resume();on=!on;btn.textContent=on?'♫ SOUND ON':'♫ SOUND OFF';if(on){bell();timer=setInterval(bell,1300)}else clearInterval(timer)});
+})();
+</script>
+</body></html>
